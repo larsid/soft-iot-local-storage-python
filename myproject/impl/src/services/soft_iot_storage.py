@@ -32,7 +32,8 @@ BROKER_PORT_WS = 9001
 DB_FILENAME = "/opt/zato/env/soft_iot_data.db" # Caminho persistente dentro do container Zato
 DEFAULT_COLLECTION_TIME = int(os.getenv('Zato_COLLECTION_TIME', 5))
 DEFAULT_PUBLISHING_TIME = int(os.getenv('Zato_PUBLISH_TIME', 15))
-
+MQTT_USER = os.getenv('Zato_MQTT_USER')
+MQTT_PASS = os.getenv('Zato_MQTT_PASS')
 
 # --- Controlador Singleton do MQTT e Banco de Dados ---
 
@@ -113,6 +114,13 @@ class LocalStorageController:
         client_id = f"SoftIoT_Storage_{int(time.time())}"
         self.client = mqtt.Client(client_id=client_id)
         
+        if MQTT_USER and MQTT_PASS:
+            self.logger.info(f"Usando credenciais MQTT para o usuário: '{MQTT_USER}'")
+            self.client.username_pw_set(MQTT_USER, MQTT_PASS)
+        else:
+            self.logger.info("Conectando ao MQTT sem credenciais (Anônimo).") 
+
+
         self.client.on_connect = self.on_connect
         self.client.on_message = self.on_message
         self.client.on_disconnect = self.on_disconnect
@@ -430,8 +438,17 @@ class LocalStorageController:
             os.makedirs(os.path.dirname(filepath), exist_ok=True)
             with open(filepath, 'w') as f:
                 json.dump(data, f, indent=4)
+        except PermissionError:
+            # Se tomar bloqueio do Linux, usa a pasta segura do Zato como Fallback
+            fallback_path = '/opt/zato/env/devices_fallback.json'
+            self.logger.warning(f"Sem permissão em {filepath}. Salvando no plano B: {fallback_path}")
+            try:
+                with open(fallback_path, 'w') as f:
+                    json.dump(data, f, indent=4)
+            except Exception as backup_error:
+                self.logger.error(f"Falha fatal ao salvar arquivo: {backup_error}")
         except Exception as e:
-            self.logger.error(f"Erro ao salvar arquivo de dispositivos: {e}")
+            self.logger.error(f"Erro desconhecido ao salvar JSON: {e}")
 
 
 # --- Serviço Zato ---

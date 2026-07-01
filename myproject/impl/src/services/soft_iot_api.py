@@ -33,6 +33,9 @@ class GetLastSensorData(BaseAPIService):
     name = 'soft-iot.api.get-last-data'
 
     def handle(self):
+        self.logger.info("Processando requisição GetLastSensorData")
+        self.logger.info(f"Payload recebido: {self.request.payload}")
+        self.logger.info(f"Tipo do payload recebido: {type(self.request.payload)}")
         device_id = self.request.payload.get('device_id')
         sensor_id = self.request.payload.get('sensor_id')
 
