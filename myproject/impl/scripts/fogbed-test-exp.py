@@ -40,7 +40,7 @@ zato_esb = Container(
     ip='10.0.0.10',
     user='root',
     privileged=True,
-    dimage='rhianpablo11/esb-zato-soft-iot:v10',
+    dimage='rhianpablo11/zato-base-congelada:v5',
     dcmd='/usr/local/bin/start_wrapper.sh',    
     environment={
         'Zato_Dashboard_Password': '123456',
@@ -57,13 +57,25 @@ zato_esb = Container(
         'Zato_TANGLE_API_PORT': '3001',
         'Zato_ZMQ_IP': '10.0.0.10',
         'Zato_ZMQ_PORT': '5556',
-        'Zato_GATEWAY_REAL_IP': '10.0.0.14'
+        'Zato_GATEWAY_REAL_IP': '10.0.0.14',
+        
+        # =======================================================
+        #  VARIÁVEIS DE OTIMIZAÇÃO DE RAM
+        # =======================================================
+        'Zato_Workers': '1',
+        'Zato_Start_Web_Admin': 'False',
+        'Zato_Start_Load_Balancer': 'False',
+        'Zato_Start_File_Listener': 'False',
+        'Zato_Start_Queue_Bridge': 'False',
+        'Zato_MQTT_USER': 'meu_usuario_iot',
+        'Zato_MQTT_PASS': 'minha_senha_super_segura'
     },
     port_bindings={
         22: HOST_SSH_PORT,
         8183: HOST_ADMIN_PORT,
         8184: HOST_ADMIN_PORT_SSL,
-        11223: HOST_ZATO_PORT,
+        # A porta 11223 (LB) morreu - Caso o load balancer esteja desativado. Mapea-se a 17010 (Server1):
+        11223: HOST_ZATO_PORT, 
         11225: 11225,
         3000: 3030,
         15672: 15672,
@@ -79,7 +91,7 @@ edge = exp.add_virtual_instance('edge')
 # ========================================================================
 # INSTANCIANDO MÚLTIPLOS DISPOSITIVOS COM UM LOOP FOR
 # ========================================================================
-NUM_DEVICES = 40
+NUM_DEVICES = 5
 devices = []
 
 print(f"Criando {NUM_DEVICES} dispositivos virtuais...")
@@ -96,16 +108,18 @@ for i in range(1, NUM_DEVICES + 1):
     dev = Container(
         name=device_name,
         ip=device_ip, 
-        dimage='virtual-fot-device-python:v2',
-        dcmd='python main.py',
+        dimage='virtual-fot-device-python:v5',
+        dcmd=f'bash -c "sleep 0 && python -u main.py"',
         environment={
             'DEVICE_ID': device_id,
             'BROKER_IP': '10.0.0.10', 
             'PORT': 1883,
-            'USERNAME': 'karaf',
-            'PASSWORD': 'karaf',
+            'USERNAME': 'meu_usuario_iot',
+            'PASSWORD': 'minha_senha_super_segura',
             'BIND_IP': device_ip,
-            'CONNECTION_TIMEOUT': 0
+            'CONNECTION_TIMEOUT': 0,
+            'ENABLE_LATENCY_TRACKER': 'False',
+            'LATENCY_API_URL': 'http://10.0.0.5:8080/api/latency-records/records'
         }
     )
     
@@ -136,6 +150,11 @@ try:
     os.system(f"docker cp {PROJECT_ROOT}/config/python-reqs/requirements.txt {real_docker_name}:/opt/hot-deploy/python-reqs/requirements.txt")
     os.system(f"docker cp {PROJECT_ROOT}/impl/src/archives/. {real_docker_name}:/home/ubuntu/mapping_archives/devices_config/")
     os.system(f"docker exec {real_docker_name} rm -f /opt/hot-deploy/myproject/impl/scripts/fogbed-test.py")
+    
+    print("Ajustando permissões de arquivos para o usuário Zato...")
+    os.system(f"docker exec {real_docker_name} chown -R zato:zato /home/ubuntu/")
+    os.system(f"docker exec {real_docker_name} chown -R zato:zato /opt/hot-deploy/")
+
     print("✅ Container configurado e arquivos copiados!")
     print(f"O Dashboard Admin está rodando em http://localhost:{HOST_ADMIN_PORT}")
     

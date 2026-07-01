@@ -1,10 +1,58 @@
 import os
+import time
+import requests
+import csv
+from datetime import datetime
 from fogbed import FogbedExperiment, Container, setLogLevel
 
 CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.abspath(os.path.join(CURRENT_DIR, '../../'))
 
 setLogLevel('info')
+
+# ========================================================================
+# FUNÇÃO DE EXTRAÇÃO AUTOMÁTICA DE DADOS (PROMETHEUS)
+# ========================================================================
+def exportar_dados_prometheus(start_time, end_time):
+    print("\n[EXTRAÇÃO] Conectando ao Prometheus para salvar CPU e RAM...")
+    url = 'http://localhost:9090/api/v1/query_range'
+    
+    # As queries buscam métricas apenas dos containers que começam com "mn." (Fogbed)
+    queries = {
+        'cpu_usage.csv': 'rate(container_cpu_usage_seconds_total{name=~"mn.*"}[1m])',
+        'ram_usage_bytes.csv': 'container_memory_usage_bytes{name=~"mn.*"}'
+    }
+    
+    os.makedirs('resultados_experimento', exist_ok=True)
+    
+    for filename, query in queries.items():
+        params = {
+            'query': query,
+            'start': start_time,
+            'end': end_time,
+            'step': '15s' # Coleta 1 ponto de dado a cada 15 segundos
+        }
+        try:
+            response = requests.get(url, params=params)
+            data = response.json()
+            
+            filepath = os.path.join('resultados_experimento', filename)
+            with open(filepath, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(['Container', 'Timestamp', 'Value'])
+                
+                if data['status'] == 'success':
+                    for result in data['data']['result']:
+                        container_name = result['metric'].get('name', 'unknown')
+                        for value in result['values']:
+                            # Converte o timestamp Unix para data legível
+                            dt_str = datetime.fromtimestamp(value[0]).strftime('%Y-%m-%d %H:%M:%S')
+                            val = value[1]
+                            writer.writerow([container_name, dt_str, val])
+            print(f"✅ Dados salvos com sucesso: {filepath}")
+        except Exception as e:
+            print(f"❌ Erro ao exportar {filename}: {e}")
+
 
 # ========================================================================
 # 1. SETUP DE VARIÁVEIS E PORTAS 
@@ -19,9 +67,6 @@ HOST_SSH_PORT = 22020 + NODE_ID
 
 container_name = f'zato-{NODE_ID}'
 
-# ========================================================================
-# 2. GERAÇÃO DO ARQUIVO ENV.INI (Traduzido dos 'echo' do Bash)
-# ========================================================================
 os.makedirs('config/auto-generated', exist_ok=True)
 with open('config/auto-generated/env.ini', 'w') as f:
     f.write("[env]\n")
@@ -30,7 +75,7 @@ with open('config/auto-generated/env.ini', 'w') as f:
     f.write("Zato_Project_Root=/opt/hot-deploy/myproject\n")
 
 # ========================================================================
-# 3. CONFIGURAÇÃO DA TOPOLOGIA FOGBED
+# 2. CONFIGURAÇÃO DA TOPOLOGIA FOGBED
 # ========================================================================
 exp = FogbedExperiment(metrics_enabled=True)
 cloud = exp.add_virtual_instance('cloud')
@@ -58,10 +103,6 @@ zato_esb = Container(
         'Zato_ZMQ_IP': '10.0.0.10',
         'Zato_ZMQ_PORT': '5556',
         'Zato_GATEWAY_REAL_IP': '10.0.0.14',
-        
-        # =======================================================
-        #  VARIÁVEIS DE OTIMIZAÇÃO DE RAM
-        # =======================================================
         'Zato_Workers': '1',
         'Zato_Start_Web_Admin': 'False',
         'Zato_Start_Load_Balancer': 'False',
@@ -74,7 +115,6 @@ zato_esb = Container(
         22: HOST_SSH_PORT,
         8183: HOST_ADMIN_PORT,
         8184: HOST_ADMIN_PORT_SSL,
-        # A porta 11223 (LB) morreu - Caso o load balancer esteja desativado. Mapea-se a 17010 (Server1):
         11223: HOST_ZATO_PORT, 
         11225: 11225,
         3000: 3030,
@@ -84,46 +124,49 @@ zato_esb = Container(
     }
 )
 
-
-# 1. Cria a camada de Borda
 edge = exp.add_virtual_instance('edge')
 
-# 2. Configuração do FoT Device
-fot_device = Container(
-    name='device-1',
-    ip='10.0.0.11', # IP Fixo do dispositivo
-    dimage='virtual-fot-device-python:v5',
-    dcmd="python main.py", # Deixa a imagem rodar o main.py nativo dela
-    environment={
-        'DEVICE_ID': 'py_device_01',
-        'BROKER_IP': '10.0.0.10', # Ele vai apontar direto para o IP interno do Zato!
-        'PORT': 1883,
-        'USERNAME': 'karaf',
-        'PASSWORD': 'karaf',
-        'BIND_IP': '10.0.0.11', # O IP do próprio dispositivo
-        'CONNECTION_TIMEOUT': 0,
-        'ENABLE_LATENCY_TRACKER': 'False',
-        'LATENCY_API_URL': 'http://10.0.0.5:8080/api/latency-records/records'
-    }
-)
+NUM_DEVICES = 5
+devices = []
+print(f"Criando {NUM_DEVICES} dispositivos virtuais...")
 
+for i in range(1, NUM_DEVICES + 1):
+    ip_suffix = 10 + i 
+    device_ip = f'10.0.0.{ip_suffix}'
+    device_name = f'device-{i}'
+    device_id = f'py_device_{i:02d}' 
+    tempo_espera = 60 + (i * 5) 
+    dev = Container(
+        name=device_name,
+        ip=device_ip, 
+        dimage='virtual-fot-device-python:v5',
+        dcmd=f'bash -c "sleep {tempo_espera} && python -u main.py"',
+        environment={
+            'DEVICE_ID': device_id,
+            'BROKER_IP': '10.0.0.10', 
+            'PORT': 1883,
+            'USERNAME': 'meu_usuario_iot',
+            'PASSWORD': 'minha_senha_super_segura',
+            'BIND_IP': device_ip,
+            'CONNECTION_TIMEOUT': 0,
+            'ENABLE_LATENCY_TRACKER': 'False',
+            'LATENCY_API_URL': 'http://10.0.0.5:8080/api/latency-records/records'
+        }
+    )
+    exp.add_docker(dev, edge)
+    devices.append(dev)
 
 exp.add_docker(zato_esb, cloud)
-exp.add_docker(fot_device, cloud)
 exp.add_link(edge, cloud)
 
 try:
     print(f"Iniciando topologia e o container {container_name}...")
     exp.start()
 
-    # ====================================================================
-    # 4. EXECUTANDO MKDIR E DOCKER CP DEPOIS QUE O CONTAINER SOBE
-    # ====================================================================
     print("Criando diretórios isolados dentro do container...")
     zato_esb.cmd('mkdir -p /opt/hot-deploy/myproject /opt/hot-deploy/enmasse /opt/hot-deploy/python-reqs /home/ubuntu/mapping_archives/devices_config/')
 
     print("Criando snapshot dos arquivos locais (docker cp)...")
-
     real_docker_name = f"mn.{container_name}"
 
     os.system(f"docker cp {PROJECT_ROOT}/. {real_docker_name}:/opt/hot-deploy/myproject/")
@@ -136,13 +179,32 @@ try:
     print("Ajustando permissões de arquivos para o usuário Zato...")
     os.system(f"docker exec {real_docker_name} chown -R zato:zato /home/ubuntu/")
     os.system(f"docker exec {real_docker_name} chown -R zato:zato /opt/hot-deploy/")
-    
+
     print("✅ Container configurado e arquivos copiados!")
     print(f"O Dashboard Admin está rodando em http://localhost:{HOST_ADMIN_PORT}")
     
-    input("\nPressione ENTER para encerrar o Fogbed e destruir a rede...\n")
+    # ====================================================================
+    # 5. CRONÔMETRO DO EXPERIMENTO E ENCERRAMENTO AUTOMÁTICO
+    # ====================================================================
+    TEMPO_MINUTOS = 10
+    TEMPO_SEGUNDOS = TEMPO_MINUTOS * 60
+    
+    start_timestamp = int(time.time())
+    
+    print(f"\n🚀 O experimento vai rodar automaticamente por {TEMPO_MINUTOS} minuto(s). Pode ir tomar um café!")
+    
+    # Loop que imprime o status a cada 5 minutos
+    for restante in range(TEMPO_SEGUNDOS, 0, -300):
+        print(f"⏱️  Tempo restante: {restante / 60:.1f} minutos...")
+        time.sleep(min(300, restante))
+        
+    end_timestamp = int(time.time())
+    
+    print("\n🛑 Tempo esgotado! Iniciando o desligamento...")
+    exportar_dados_prometheus(start_timestamp, end_timestamp)
     
 except Exception as ex: 
     print(f"Erro: {ex}")
 finally:
     exp.stop()
+    print("🏁 Topologia destruída com segurança.")

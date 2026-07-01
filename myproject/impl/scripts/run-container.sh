@@ -60,15 +60,16 @@ export env_name=myproject
 export zato_password=123456
 
 # How much of the logging details to show, e.g. "-v" or "-vvvvv"
-export zato_build_verbosity=${Zato_Build_Verbosity:-"v"}
+export zato_build_verbosity=${Zato_Build_Verbosity:-""}
 
 # Absolute path to where to install code in the container
 export target=/opt/hot-deploy
 
 # IMPORTANT -> THIS INDICATES THE ADDRESS OF THE DOCKER IMAGE TO USE FOR THE CONTAINER.
 # name of the docker image to use for the container
-# export package_address=rhianpablo11/esb-zato-soft-iot:v8
-export package_address=zato-docker-image-new
+# export package_address=rhianpablo11/zato-base-congelada:v1
+export package_address=rhianpablo11/zato-teste-att-se-ta-att
+# export package_address=rhianpablo11/zato-ubuntu-limpo:v2
 
 # Absolute path to our source code on host
 # ATENÇÃO: Esse script assume que ele está dentro de uma pasta 'bin' ou similar
@@ -117,10 +118,24 @@ export GATEWAY_REAL_IP=10.0.0.14
 export host_data_dir_archives_to_send='../../impl/src/archives/'
 export container_data_dir=/home/ubuntu/mapping_archives/devices_config/
 
+
+
+# Config about MQTT -> if not passed, connections will be allowed without authentication (allow_anonymous true)
+export Zato_MQTT_USER=meu_usuario_iot
+export Zato_MQTT_PASS=minha_senha_super_segura
+
 # ========================================================================
 # ========= END ENVIRONMENT VARIABLES AND CONFIGS OF PROJECT =============
 # ========================================================================
 
+# ========================================================================
+# ============================ (OPTIMIZATION) ============================
+# ========================================================================
+export Zato_Workers=1                    # se nao passar nada ele deixa para o proprio Zato verificar a quantidade de Workers q irá subir
+export Zato_Start_Web_Admin=False        # aciona o dashboard web
+export Zato_Start_Load_Balancer=False    # aciona o load balancer dele -> ALTERA AS PORTAS: sem ele (17010) e com ele (11223)
+export Zato_Start_File_Listener=False    # verifica as pastas de arquivos para verificar sem tem arquivos novos
+export Zato_Start_Queue_Bridge=False     # fica vigiando conexões com IBM MQ, AMQP (RabbitMQ) e JMS
 
 
 # ========================================================================
@@ -161,6 +176,11 @@ docker run -d \
     -e Zato_AGGREGATION_WINDOW_MINUTES=$AGGREGATION_WINDOW_MINUTES \
     -e Zato_SAVE_DATA_ENABLED=$SAVE_DATA_ENABLED                   \
     -e Zato_DATA_RETENTION_SECONDS=$DATA_RETENTION_SECONDS         \
+    -e Zato_Workers=$Zato_Workers \
+    -e Zato_Start_Web_Admin=$Zato_Start_Web_Admin \
+    -e Zato_Start_Load_Balancer=$Zato_Start_Load_Balancer \
+    -e Zato_Start_File_Listener=$Zato_Start_File_Listener \
+    -e Zato_Start_Queue_Bridge=$Zato_Start_Queue_Bridge \
     $package_address
 
 
