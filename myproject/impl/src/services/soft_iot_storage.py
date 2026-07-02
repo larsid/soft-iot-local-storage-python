@@ -231,7 +231,7 @@ class LocalStorageController:
             self.logger.info(f"CONNACK enviado para {resp_topic}")
             
             # Inicia o fluxo de dados
-            time.sleep(0.5) 
+            # time.sleep(0.5) 
             self.handle_device_connected(device_id)
 
         except Exception as e:
@@ -422,7 +422,7 @@ class LocalStorageController:
                         int(c_time * 1000), 
                         int(p_time * 1000)
                     )
-                    time.sleep(5)
+                    #time.sleep(5)
                     topic = f"{tatu_wrapper.TOPIC_BASE}{device_id}"
                     self.logger.info(f"Publicando no tópico {topic}: {flow_req}")
                     self.client.publish(topic, flow_req)
