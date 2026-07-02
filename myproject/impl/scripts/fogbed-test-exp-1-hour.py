@@ -105,7 +105,7 @@ zato_esb = Container(
         'Zato_GATEWAY_REAL_IP': '10.0.0.14',
         'Zato_Workers': '1',
         'Zato_Start_Web_Admin': 'False',
-        'Zato_Start_Load_Balancer': 'False',
+        'Zato_Start_Load_Balancer': 'True',
         'Zato_Start_File_Listener': 'False',
         'Zato_Start_Queue_Bridge': 'False',
         'Zato_MQTT_USER': 'meu_usuario_iot',
@@ -124,23 +124,37 @@ zato_esb = Container(
     }
 )
 
-edge = exp.add_virtual_instance('edge')
+NUM_EDGES = 4
+edges = []
 
-NUM_DEVICES = 5
+# Criamos 4 switches separados e já ligamos todos eles na Nuvem
+for i in range(NUM_EDGES):
+    edge_inst = exp.add_virtual_instance(f'edge_{i}')
+    edges.append(edge_inst)
+    exp.add_link(edge_inst, cloud)
+
+exp.add_docker(zato_esb, cloud)
+
+NUM_DEVICES = 100
 devices = []
-print(f"Criando {NUM_DEVICES} dispositivos virtuais...")
+print(f"Criando {NUM_DEVICES} dispositivos virtuais distribuídos em {NUM_EDGES} antenas...")
 
 for i in range(1, NUM_DEVICES + 1):
     ip_suffix = 10 + i 
     device_ip = f'10.0.0.{ip_suffix}'
     device_name = f'device-{i}'
     device_id = f'py_device_{i:02d}' 
-    tempo_espera = 60 + (i * 5) 
+    
+    # 1º: Distribuição de Carga - O device escolhe uma antena (0, 1, 2, 3...)
+    edge_alvo = edges[i % NUM_EDGES]
+    
+    
+    tempo_espera = 180 + (i * 2) 
     dev = Container(
         name=device_name,
         ip=device_ip, 
         dimage='virtual-fot-device-python:v5',
-        dcmd=f'bash -c "sleep {tempo_espera} && python -u main.py"',
+        dcmd=f'bash -c "sleep 180 && python -u main.py"',
         environment={
             'DEVICE_ID': device_id,
             'BROKER_IP': '10.0.0.10', 
@@ -153,11 +167,9 @@ for i in range(1, NUM_DEVICES + 1):
             'LATENCY_API_URL': 'http://10.0.0.5:8080/api/latency-records/records'
         }
     )
-    exp.add_docker(dev, edge)
+    # 2º: Injeta o container especificamente na antena que separamos para ele
+    exp.add_docker(dev, edge_alvo)
     devices.append(dev)
-
-exp.add_docker(zato_esb, cloud)
-exp.add_link(edge, cloud)
 
 try:
     print(f"Iniciando topologia e o container {container_name}...")
