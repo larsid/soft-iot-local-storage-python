@@ -92,7 +92,7 @@ edge = exp.add_virtual_instance('edge')
 fot_device = Container(
     name='device-1',
     ip='10.0.0.11', # IP Fixo do dispositivo
-    dimage='virtual-fot-device-python:v5',
+    dimage='rhianpablo11/virtual-fot-device-python:v5',
     dcmd="python main.py", # Deixa a imagem rodar o main.py nativo dela
     environment={
         'DEVICE_ID': 'py_device_01',

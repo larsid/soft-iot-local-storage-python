@@ -108,7 +108,7 @@ for i in range(1, NUM_DEVICES + 1):
     dev = Container(
         name=device_name,
         ip=device_ip, 
-        dimage='virtual-fot-device-python:v5',
+        dimage='rhianpablo11/virtual-fot-device-python:v5',
         dcmd=f'bash -c "sleep 0 && python -u main.py"',
         environment={
             'DEVICE_ID': device_id,
